@@ -88,54 +88,28 @@ If a user loses the original phone, a new install can accept the saved
 `receiverID` before scanning the active sensor. Active-sensor recovery then uses
 the switch-receiver NFC command and the normal BLE authorization flow.
 
-## iOS BLE Background Strategy
+## Data Quality
 
-Apple's CoreBluetooth background model gives us two relevant wake paths:
+Each `RealtimeGlucoseReading` carries the sensor's own quality channels (data
+quality error, sensor condition, displayable-range status, and actionability).
+`currentGlucoseQualityAssessment(lifecycle:)` folds these into a
+`Libre3GlucoseQualityAssessment` with an overall `isUsable` flag plus the
+contributing `issues`.
 
-- With `UIBackgroundModes = bluetooth-central`, iOS can wake the app for
-  central/peripheral delegate events, including characteristic value updates.
-- With a `CBCentralManagerOptionRestoreIdentifierKey`, iOS can preserve
-  connected/pending peripherals and subscribed characteristics across app
-  termination and later relaunch the app to restore state.
+Issues are split into two classes:
 
-Official Apple references:
+- Blocking issues suppress the reading: sensor warmup, expiry, a data-quality
+  error, an unavailable/out-of-range value, or an abnormal sensor condition.
+  These clear `isUsable` and are exposed via `blockingIssues`.
+- Advisory issues are surfaced for visibility but do not suppress the reading.
+  Currently the only advisory is `notActionable`, exposed via `advisories`.
 
-- Core Bluetooth Background Processing for iOS Apps:
-  <https://developer.apple.com/library/archive/documentation/NetworkingInternetWeb/Conceptual/CoreBluetooth_concepts/CoreBluetoothBackgroundProcessingForIOSApps/PerformingTasksWhileYourAppIsInTheBackground.html>
-- `CBCentralManagerOptionRestoreIdentifierKey`:
-  <https://developer.apple.com/documentation/corebluetooth/cbcentralmanageroptionrestoreidentifierkey>
-- `UIApplication.LaunchOptionsKey.bluetoothCentrals`:
-  <https://developer.apple.com/documentation/uikit/uiapplication/launchoptionskey/bluetoothcentrals>
-- `CBCentralManager.registerForConnectionEvents(options:)`:
-  <https://developer.apple.com/documentation/corebluetooth/cbcentralmanager/registerforconnectionevents(options:)>
-
-Libre 3 stays connected after authorization and emits minute-spaced
-`glucoseData` notifications. The primary background wake trigger is the
-`glucoseData` characteristic notification, not a periodic disconnect/reconnect
-cycle.
-
-Reconnect still needs a bounded foreground/background execution window for the
-BLE authorization handshake. When reconnect starts while the app is already
-backgrounded, the host app should wrap the connect + cached/direct or full
-authorization work in `UIApplication.beginBackgroundTask(...)` and always end
-that task when Phase 6 succeeds, fails, or the expiration handler fires.
-
-The integrating app should still handle disconnects:
-
-1. Keep one long-lived `SensorScanner` configured with
-   `SensorScannerConfiguration.background(restorationIdentifier:)`.
-2. Create it during app launch before the app's saved sensor state is restored.
-3. Subscribe to `restorationEvents()` and call `resumeSession(for:)` for
-   restored peripherals.
-4. After an unexpected disconnect, call `registerForConnectionEvents(...)` for
-   the known peripheral ID and/or Libre 3 service UUID, then issue a pending
-   reconnect.
-5. On wake, do only bounded work: refresh needed CCCDs, decrypt the incoming
-   frame, persist/emit the app's glucose sample, schedule reconnect policy if
-   needed, and return quickly.
-
-The standalone app already declares `bluetooth-central` in `project.yml`; host
-apps need the same background mode if they expect iOS to wake them for BLE work.
+Actionability (bit 3 of the realtime status byte) is intentionally advisory.
+Abbott's own app still displays the glucose value for a non-actionable reading;
+the bit only optionally drives a "non-actionable" overlay icon. A reading whose
+other quality channels are clean therefore stays usable even when the sensor
+reports it as non-actionable. Integrating apps that want stricter behavior can
+inspect `reading.actionability` or the `advisories` list directly.
 
 ## Standalone POC Exercise App
 
