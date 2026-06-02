@@ -49,6 +49,15 @@ public struct PatchStatus: Equatable, Sendable {
         )
     }
 
+    /// Lifecycle whose warmup and wear durations are taken from the NFC
+    /// patch info rather than the assumed defaults.
+    public func lifecycle(patchInfo: Libre3NFCPatchInfo) -> SensorLifecycle {
+        lifecycle(
+            warmupDurationMinutes: Int(patchInfo.warmupMinutes),
+            wearDurationMinutes: Int(patchInfo.wearDurationMinutes)
+        )
+    }
+
     public init(plaintext: Data) throws {
         guard plaintext.count == Self.plaintextSize else {
             throw PatchStatusError.wrongPlaintextSize(plaintext.count)

@@ -637,6 +637,7 @@ final class NFCActivationViewModel: ObservableObject {
                     let state = try activation.sensorState(
                         serialNumber: result.patchInfo.serialNumber,
                         receiverID: Libre3ReceiverID(receiverID),
+                        patchInfo: result.patchInfo,
                         source: source
                     )
                     activatedSensorState = state

@@ -309,6 +309,34 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertEqual(lifecycle.remainingWearMinutes, 5596)
     }
 
+    func testLifecycleTakesWarmupAndWearFromPatchInfo() throws {
+        // 12-minute-old sensor: still in warmup when warmup is the patchInfo
+        // value of 60 (would already be "active" under a smaller default).
+        let status = try PatchStatus(plaintext: raw("0c000000000000040c000000"))
+        XCTAssertEqual(status.currentLifeCount, 12)
+
+        let patchInfo = try Libre3NFCPatchInfo(
+            raw: raw("00a50001000200010060541e020401040c04305252433938394151c6ca")
+        )
+        XCTAssertEqual(patchInfo.warmupMinutes, 60)
+        XCTAssertEqual(patchInfo.wearDurationMinutes, 21600)
+
+        let lifecycle = status.lifecycle(patchInfo: patchInfo)
+        XCTAssertEqual(lifecycle.warmupDurationMinutes, 60)
+        XCTAssertEqual(lifecycle.wearDurationMinutes, 21600)
+        XCTAssertEqual(lifecycle.phase, .warmup)
+        XCTAssertTrue(lifecycle.isWarmingUp)
+        XCTAssertEqual(lifecycle.remainingWarmupMinutes, 48)
+        XCTAssertEqual(lifecycle.remainingWearMinutes, 21588)
+
+        let state = Libre3DataPlaneState(patchInfo: patchInfo, latestPatchStatus: status)
+        XCTAssertEqual(state.warmupDurationMinutes, 60)
+        XCTAssertEqual(state.wearDurationMinutes, 21600)
+        XCTAssertEqual(state.lifecyclePhase, .warmup)
+        XCTAssertTrue(state.isInWarmup)
+        XCTAssertEqual(state.latestLifecycle?.remainingWarmupMinutes, 48)
+    }
+
     func testSessionControlFrames() throws {
         // 0x0011 traffic from fresh_pair (recs 433, 437, 438, 453).
         // Variable encrypted length but consistent (seq, type) trailer.

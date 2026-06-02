@@ -94,6 +94,7 @@ public struct Libre3NFCActivationResponse: Sendable, Equatable {
     public func sensorState(
         serialNumber: String?,
         receiverID: Libre3ReceiverID? = nil,
+        patchInfo: Libre3NFCPatchInfo? = nil,
         source: String? = "NFC activation response"
     ) throws -> Libre3SensorState {
         try Libre3SensorState(
@@ -101,7 +102,9 @@ public struct Libre3NFCActivationResponse: Sendable, Equatable {
             blePIN: blePIN,
             bleAddress: bleAddressDisplay,
             receiverID: receiverID,
-            source: source
+            source: source,
+            warmupDurationMinutes: patchInfo.map { Int($0.warmupMinutes) },
+            wearDurationMinutes: patchInfo.map { Int($0.wearDurationMinutes) }
         )
     }
 }

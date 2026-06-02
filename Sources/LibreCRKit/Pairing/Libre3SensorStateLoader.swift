@@ -8,6 +8,8 @@ public struct Libre3SensorState: Equatable, Sendable {
     public let source: String?
     public let lastGlucoseLifeCount: UInt16?
     public let lastGlucoseMgDL: UInt16?
+    public let warmupDurationMinutes: Int?
+    public let wearDurationMinutes: Int?
 
     public init(
         serialNumber: String?,
@@ -16,7 +18,9 @@ public struct Libre3SensorState: Equatable, Sendable {
         receiverID: Libre3ReceiverID? = nil,
         source: String? = nil,
         lastGlucoseLifeCount: UInt16? = nil,
-        lastGlucoseMgDL: UInt16? = nil
+        lastGlucoseMgDL: UInt16? = nil,
+        warmupDurationMinutes: Int? = nil,
+        wearDurationMinutes: Int? = nil
     ) throws {
         guard blePIN.count == 4 else {
             throw Libre3SensorStateError.wrongBlePINSize(blePIN.count)
@@ -28,6 +32,8 @@ public struct Libre3SensorState: Equatable, Sendable {
         self.source = source
         self.lastGlucoseLifeCount = lastGlucoseLifeCount
         self.lastGlucoseMgDL = lastGlucoseMgDL
+        self.warmupDurationMinutes = warmupDurationMinutes.map { max(0, $0) }
+        self.wearDurationMinutes = wearDurationMinutes.map { max(0, $0) }
     }
 
     public func updatingLastGlucose(lifeCount: UInt16, mgDL: UInt16?) throws -> Libre3SensorState {
@@ -38,7 +44,26 @@ public struct Libre3SensorState: Equatable, Sendable {
             receiverID: receiverID,
             source: source,
             lastGlucoseLifeCount: lifeCount,
-            lastGlucoseMgDL: mgDL
+            lastGlucoseMgDL: mgDL,
+            warmupDurationMinutes: warmupDurationMinutes,
+            wearDurationMinutes: wearDurationMinutes
+        )
+    }
+
+    /// Persist the sensor's warmup/wear cycle taken from the NFC patch info, so
+    /// reconnects (which do not re-scan NFC) can build lifecycle from the
+    /// sensor's reported durations rather than the assumed defaults.
+    public func applyingSensorCycle(from patchInfo: Libre3NFCPatchInfo) throws -> Libre3SensorState {
+        try Libre3SensorState(
+            serialNumber: serialNumber,
+            blePIN: blePIN,
+            bleAddress: bleAddress,
+            receiverID: receiverID,
+            source: source,
+            lastGlucoseLifeCount: lastGlucoseLifeCount,
+            lastGlucoseMgDL: lastGlucoseMgDL,
+            warmupDurationMinutes: Int(patchInfo.warmupMinutes),
+            wearDurationMinutes: Int(patchInfo.wearDurationMinutes)
         )
     }
 
@@ -70,6 +95,8 @@ public enum Libre3SensorStateLoader {
         let source: String?
         let lastGlucoseLifeCount: UInt16?
         let lastGlucoseMgDL: UInt16?
+        let warmupDurationMinutes: Int?
+        let wearDurationMinutes: Int?
     }
 
     public static func load(fromJSON jsonData: Data) throws -> Libre3SensorState {
@@ -96,7 +123,9 @@ public enum Libre3SensorStateLoader {
             receiverID: receiverID,
             source: decoded.source,
             lastGlucoseLifeCount: decoded.lastGlucoseLifeCount,
-            lastGlucoseMgDL: decoded.lastGlucoseMgDL
+            lastGlucoseMgDL: decoded.lastGlucoseMgDL,
+            warmupDurationMinutes: decoded.warmupDurationMinutes,
+            wearDurationMinutes: decoded.wearDurationMinutes
         )
     }
 
@@ -108,7 +137,9 @@ public enum Libre3SensorStateLoader {
             receiverID: state.receiverID?.littleEndianHex,
             source: state.source,
             lastGlucoseLifeCount: state.lastGlucoseLifeCount,
-            lastGlucoseMgDL: state.lastGlucoseMgDL
+            lastGlucoseMgDL: state.lastGlucoseMgDL,
+            warmupDurationMinutes: state.warmupDurationMinutes,
+            wearDurationMinutes: state.wearDurationMinutes
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

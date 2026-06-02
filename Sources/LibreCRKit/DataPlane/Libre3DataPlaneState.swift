@@ -43,16 +43,57 @@ public struct Libre3DataPlaneState: Equatable, Sendable {
         self.historicalBackfill = historicalBackfill
     }
 
+    /// Seed reconnect state from persisted sensor state. When `warmup`/`wear`
+    /// are not supplied, fall back to the sensor's persisted cycle (captured at
+    /// pairing) and only then to the assumed default, so reconnects reflect the
+    /// sensor's reported warmup/wear without re-scanning NFC.
     public init(
         sensorState: Libre3SensorState,
-        warmupDurationMinutes: Int = SensorLifecycle.defaultWarmupDurationMinutes,
+        warmupDurationMinutes: Int? = nil,
         wearDurationMinutes: Int? = nil,
         latestPatchStatus: PatchStatus? = nil,
         historicalBackfill: HistoricalBackfill = HistoricalBackfill()
     ) {
         self.init(
-            warmupDurationMinutes: warmupDurationMinutes,
-            wearDurationMinutes: wearDurationMinutes,
+            warmupDurationMinutes: warmupDurationMinutes
+                ?? sensorState.warmupDurationMinutes
+                ?? SensorLifecycle.defaultWarmupDurationMinutes,
+            wearDurationMinutes: wearDurationMinutes ?? sensorState.wearDurationMinutes,
+            latestPatchStatus: latestPatchStatus,
+            lastAcceptedGlucoseLifeCount: sensorState.lastGlucoseLifeCount,
+            lastAcceptedGlucoseMgDL: sensorState.lastGlucoseMgDL,
+            historicalBackfill: historicalBackfill
+        )
+    }
+
+    /// Seed the data-plane state with warmup/wear durations taken from the NFC
+    /// patch info, so lifecycle reflects the sensor's reported cycle rather
+    /// than the assumed defaults.
+    public init(
+        patchInfo: Libre3NFCPatchInfo,
+        latestPatchStatus: PatchStatus? = nil,
+        lastAcceptedGlucoseLifeCount: UInt16? = nil,
+        lastAcceptedGlucoseMgDL: UInt16? = nil,
+        historicalBackfill: HistoricalBackfill = HistoricalBackfill()
+    ) {
+        self.init(
+            warmupDurationMinutes: Int(patchInfo.warmupMinutes),
+            wearDurationMinutes: Int(patchInfo.wearDurationMinutes),
+            latestPatchStatus: latestPatchStatus,
+            lastAcceptedGlucoseLifeCount: lastAcceptedGlucoseLifeCount,
+            lastAcceptedGlucoseMgDL: lastAcceptedGlucoseMgDL,
+            historicalBackfill: historicalBackfill
+        )
+    }
+
+    public init(
+        sensorState: Libre3SensorState,
+        patchInfo: Libre3NFCPatchInfo,
+        latestPatchStatus: PatchStatus? = nil,
+        historicalBackfill: HistoricalBackfill = HistoricalBackfill()
+    ) {
+        self.init(
+            patchInfo: patchInfo,
             latestPatchStatus: latestPatchStatus,
             lastAcceptedGlucoseLifeCount: sensorState.lastGlucoseLifeCount,
             lastAcceptedGlucoseMgDL: sensorState.lastGlucoseMgDL,
