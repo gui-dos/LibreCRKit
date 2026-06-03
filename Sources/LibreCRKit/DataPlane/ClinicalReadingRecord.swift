@@ -2,54 +2,67 @@ import Foundation
 
 /// Decoded clinical-stream record (0x08981ab8). Distinct from
 /// `HistoricalReadingPage`: clinical pages are NOT six samples at
-/// 5-minute stride — each page is a single time-point record with six
+/// 5-minute stride — each page is a single time-point record with seven
 /// 16-bit fields, emitted once per minute while the sensor is connected.
-/// Field semantics were determined against ground truth where realtime
-/// forwards and historical backfill at known lifeCounts let us pin each
-/// field's meaning:
 ///
-/// | word | meaning                                                  |
-/// | ---- | -------------------------------------------------------- |
-/// |  0   | `lifeCount` — current minute (page emitted per minute)   |
-/// |  1   | unknown raw sensor field (observed 0x4700–0x4900)        |
-/// |  2   | unknown raw sensor field (observed 0x0e80–0x0f20)        |
-/// |  3   | reserved / zero (only 0x0000 observed)                   |
-/// |  4   | minute-resolution glucose at `lifeCount` (low byte mg/dL)|
-/// |  5   | most recent 5-minute committed (smoothed) glucose value  |
+/// Field semantics were pinned against ground truth: at a known
+/// `lifeCount` the realtime stream forwards both a current value and an
+/// embedded historical value, and the clinical record emitted at the
+/// same `lifeCount` reproduces both. At lifeCount 1578 the realtime
+/// frame reported current = 160 mg/dL and embedded historical = 136
+/// mg/dL (at the last 5-minute boundary, lifeCount 1560); the clinical
+/// record at lifeCount 1578 carried word[5] = 160 and word[6] = 136.
+/// That cross-check fixes the mapping:
 ///
-/// Word[4] is the same per-minute value the realtime stream emits each
-/// minute. Word[5] is the same per-five-minute smoothed value the
-/// historical stream emits, but trailing the current lifeCount by
-/// `smoothedGlucoseLifeCountOffset` (observed at 17 across all samples;
-/// modeling as a constant pending more captures).
+/// | word | bytes | meaning                                              |
+/// | ---- | ----- | ---------------------------------------------------- |
+/// |  0   | 0–1   | `lifeCount` — current minute (page emitted per minute)|
+/// |  1   | 2–3   | raw sensor channel (rises with glucose)              |
+/// |  2   | 4–5   | raw sensor channel                                   |
+/// |  3   | 6–7   | raw sensor channel (high byte pinned 0x0e; temp?)    |
+/// |  4   | 8–9   | reserved / zero (only 0x0000 observed)               |
+/// |  5   | 10–11 | current-minute glucose — equals realtime current     |
+/// |  6   | 12–13 | most recent 5-min committed glucose — equals realtime|
+/// |      |       | embedded historical                                  |
+///
+/// `currentGlucoseRaw` (word[5]) is the same per-minute value the
+/// realtime stream emits, keyed at this record's own `lifeCount` (no
+/// offset). `historicGlucoseRaw` (word[6]) is the same 5-minute committed
+/// value the realtime stream carries as its embedded historical; its
+/// lifeCount is the most recent 5-minute boundary, which this record does
+/// not itself carry (the realtime frame's `historicalLifeCount` does).
 ///
 /// Practical use: the clinical stream is the only published way to
 /// backfill *minute-resolution* glucose during a disconnect window —
 /// historical only persists 5-min boundaries. Apps integrating this
-/// should consume `currentGlucose` keyed by `lifeCount`.
+/// should consume `currentGlucose` keyed by `lifeCount` (offset 0).
+/// `historicGlucoseRaw` is redundant with the realtime embedded
+/// historical and should not be keyed at this record's `lifeCount`.
 public struct ClinicalReadingRecord: Equatable, Sendable {
     public static let plaintextSize = 14
 
     /// LifeCount of this clinical record (per-minute granularity).
     public let lifeCount: UInt16
 
-    public let reservedWord1: UInt16
-    public let reservedWord2: UInt16
-    public let reservedWord3: UInt16
+    /// Raw sensor channels (words 1–3). Not glucose; exposed for
+    /// diagnostics. Word 3's high byte is pinned at 0x0e and is the
+    /// suspected temperature channel.
+    public let rawSensorWord1: UInt16
+    public let rawSensorWord2: UInt16
+    public let rawSensorWord3: UInt16
 
-    /// Raw 16-bit current-minute glucose value. Feed to
-    /// `Libre3GlucoseValueStatus(rawSensorValue:)` to get mg/dL.
+    /// Word 4 — only 0x0000 observed.
+    public let reservedWord: UInt16
+
+    /// Raw 16-bit current-minute glucose value, keyed at `lifeCount`.
+    /// Equals the realtime stream's current value at the same lifeCount.
+    /// Feed to `Libre3GlucoseValueStatus(rawSensorValue:)` for mg/dL.
     public let currentGlucoseRaw: UInt16
 
-    /// Raw 16-bit most-recent 5-min smoothed glucose value. Its lifeCount
-    /// is `lifeCount &- Self.smoothedGlucoseLifeCountOffset`.
-    public let smoothedGlucoseRaw: UInt16
-
-    /// Observed delay (in lifeCounts/minutes) between the current
-    /// `lifeCount` and the lifeCount that `smoothedGlucoseRaw` represents.
-    /// Always 17 in captured data; modeled as a constant pending evidence
-    /// of variance.
-    public static let smoothedGlucoseLifeCountOffset: UInt16 = 17
+    /// Raw 16-bit most-recent 5-minute committed glucose value. Equals
+    /// the realtime stream's embedded historical value; its lifeCount is
+    /// the most recent 5-minute boundary, NOT this record's `lifeCount`.
+    public let historicGlucoseRaw: UInt16
 
     public init(plaintext: Data) throws {
         guard plaintext.count == Self.plaintextSize else {
@@ -59,11 +72,12 @@ public struct ClinicalReadingRecord: Equatable, Sendable {
             UInt16(plaintext[offset]) | (UInt16(plaintext[offset + 1]) << 8)
         }
         self.lifeCount = words[0]
-        self.reservedWord1 = words[1]
-        self.reservedWord2 = words[2]
-        self.reservedWord3 = words[3]
-        self.currentGlucoseRaw = words[4]
-        self.smoothedGlucoseRaw = words[5]
+        self.rawSensorWord1 = words[1]
+        self.rawSensorWord2 = words[2]
+        self.rawSensorWord3 = words[3]
+        self.reservedWord = words[4]
+        self.currentGlucoseRaw = words[5]
+        self.historicGlucoseRaw = words[6]
     }
 
     public var currentGlucose: Libre3GlucoseValueStatus {
@@ -74,17 +88,12 @@ public struct ClinicalReadingRecord: Equatable, Sendable {
         currentGlucose.displayMgDL
     }
 
-    public var smoothedGlucose: Libre3GlucoseValueStatus {
-        Libre3GlucoseValueStatus(rawSensorValue: smoothedGlucoseRaw)
+    public var historicGlucose: Libre3GlucoseValueStatus {
+        Libre3GlucoseValueStatus(rawSensorValue: historicGlucoseRaw)
     }
 
-    public var smoothedGlucoseMgDL: UInt16? {
-        smoothedGlucose.displayMgDL
-    }
-
-    /// LifeCount that `smoothedGlucoseRaw` represents.
-    public var smoothedLifeCount: UInt16 {
-        lifeCount &- Self.smoothedGlucoseLifeCountOffset
+    public var historicGlucoseMgDL: UInt16? {
+        historicGlucose.displayMgDL
     }
 }
 
