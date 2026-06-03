@@ -148,6 +148,34 @@ The library still deliberately exposes low-level hooks rather than owning a
 finished CGM lifecycle policy, because the host app's connection-state policy,
 retry cadence, persistence, and UI belong in the integrating app.
 
+## Minute-Resolution Gap-Fill
+
+Two backfill channels exist, with different resolution and cadence:
+
+- Paged historical backfill (`HistoricalReadingPage` /
+  `PatchControlCommand.backfillGreaterEqual`) commits only at 5-minute
+  boundaries and lags the current life count by ~17 minutes.
+- The clinical stream (`ClinicalReadingRecord`, char `0x08981ab8`) emits one
+  per-minute record while connected. Its current-minute glucose
+  (`currentGlucose`, decoded from word[5]) is keyed at the record's own
+  `lifeCount` with no offset. The sensor buffers these records while the host
+  is disconnected and replays the buffered window in a burst on resubscribe —
+  field testing has seen 38+ contiguous per-minute records arrive within
+  seconds of reconnect after a multi-tens-of-minutes outage.
+
+The clinical stream is therefore the only published way to recover
+*minute-resolution* glucose across a disconnect window. Apps that care about
+gap-fill should subscribe to the clinical CCCD and forward `currentGlucose`
+keyed at `lifeCount`, deduping against samples already received from the
+realtime stream.
+
+`historicGlucoseRaw` (word[6]) is the same 5-minute committed value the
+realtime frame carries as its embedded historical and should not be keyed at
+the clinical record's own `lifeCount`. When only a clinical record is in hand,
+`historicLifeCountEstimate` snaps to the last 5-minute boundary at
+`lifeCount − 17`; when the realtime frame is available, prefer its
+authoritative `historicalLifeCount`.
+
 ## Reconnect Authorization Scope
 
 After a sensor is initially paired and saved, an app can skip onboarding, avoid

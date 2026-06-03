@@ -32,12 +32,37 @@ import Foundation
 /// lifeCount is the most recent 5-minute boundary, which this record does
 /// not itself carry (the realtime frame's `historicalLifeCount` does).
 ///
-/// Practical use: the clinical stream is the only published way to
-/// backfill *minute-resolution* glucose during a disconnect window —
-/// historical only persists 5-min boundaries. Apps integrating this
-/// should consume `currentGlucose` keyed by `lifeCount` (offset 0).
-/// `historicGlucoseRaw` is redundant with the realtime embedded
-/// historical and should not be keyed at this record's `lifeCount`.
+/// **5-min-boundary finalization for word[6]:** the historic value steps
+/// forward at `lifeCount ≡ 2 (mod 5)` and lands on the boundary
+/// `lifeCount − 17` (snapped down to a multiple of 5). Empirically
+/// confirmed across multiple captures; e.g. `lifeCount 2017` finalized
+/// the boundary at 2000, `2022` at 2005, `2027` at 2010, etc. The ~17
+/// minute lag is the firmware's historic-finalization latency. It has
+/// not been proven firmware-constant across all sensors/conditions, so
+/// authoritative pairing of `historicGlucoseRaw` to a lifeCount should
+/// prefer the realtime frame's own `historicalLifeCount` field when
+/// available; the helper below is provided for cases where only the
+/// clinical record is in hand.
+///
+/// **Gap-fill behavior — the headline practical use:** the clinical
+/// CCCD buffers records sensor-side while the host is disconnected and
+/// replays the full buffered window in a burst on resubscribe. Field
+/// testing has observed bursts of 38+ contiguous per-minute records
+/// arriving within a few seconds of reconnect after a multi-tens-of-
+/// minutes outage. This makes the clinical stream the only published
+/// way to recover *minute-resolution* glucose for the outage window —
+/// historical paged backfill only commits at 5-min boundaries and lags
+/// current by ~17 minutes, leaving a window the realtime frame's
+/// embedded historical can only refill over the ~17 minutes following
+/// reconnect. Apps that care about gap-fill should subscribe to the
+/// clinical CCCD and forward `currentGlucose` keyed at `lifeCount`,
+/// deduping against samples already received via the realtime stream.
+///
+/// Apps integrating this should consume `currentGlucose` keyed by
+/// `lifeCount` (offset 0). `historicGlucoseRaw` is redundant with the
+/// realtime embedded historical and should not be keyed at this
+/// record's `lifeCount` — use `historicLifeCountEstimate` (or the
+/// realtime frame's `historicalLifeCount`) instead.
 public struct ClinicalReadingRecord: Equatable, Sendable {
     public static let plaintextSize = 14
 
@@ -94,6 +119,19 @@ public struct ClinicalReadingRecord: Equatable, Sendable {
 
     public var historicGlucoseMgDL: UInt16? {
         historicGlucose.displayMgDL
+    }
+
+    /// Best-effort estimate of the `lifeCount` that `historicGlucoseRaw`
+    /// represents, derived from the empirical "snap to last 5-min
+    /// boundary at `lifeCount − 17`" model. Returns `nil` when the
+    /// arithmetic underflows (e.g. very early in sensor life). Prefer
+    /// the realtime frame's own `historicalLifeCount` field when you
+    /// have both records in hand — that's authoritative; this helper
+    /// only exists for callers consuming clinical records in isolation.
+    public var historicLifeCountEstimate: UInt16? {
+        let lagged = Int(lifeCount) - 17
+        guard lagged >= 0 else { return nil }
+        return UInt16(lagged - (lagged % 5))
     }
 }
 
