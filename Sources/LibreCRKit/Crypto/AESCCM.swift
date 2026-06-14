@@ -105,7 +105,9 @@ public enum AESCCM {
             if a < 0xFF00 {
                 enc.append(UInt8((a >> 8) & 0xff))
                 enc.append(UInt8(a & 0xff))
-            } else if a <= 0xFFFFFFFF {
+            // Fix compilation failure with watchOS where Int is an Int32
+            // } else if a <= 0xFFFFFFFF {
+            } else if UInt64(a) <= 0xFFFFFFFF {
                 enc.append(0xFF)
                 enc.append(0xFE)
                 let v = UInt32(a)
