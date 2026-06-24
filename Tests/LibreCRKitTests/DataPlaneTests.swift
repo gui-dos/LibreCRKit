@@ -304,7 +304,8 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertFalse(status.hasErrorData)
         XCTAssertTrue(status.hasDisconnectReason)
         XCTAssertEqual(status.sensorError, .none)
-        XCTAssertFalse(status.isTerminalFailure)
+        XCTAssertFalse(status.isShutdownTerminated)
+        XCTAssertFalse(status.isInsertionFailure)
 
         let lifecycle = status.lifecycle(wearDurationMinutes: 20160)
         XCTAssertEqual(lifecycle.phase, .active)
@@ -328,14 +329,23 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertEqual(try status(errorWord: "0800").sensorError, .terminated)
         XCTAssertEqual(try status(errorWord: "0900").sensorError, .unknown(9))
 
-        // Terminal failures (replace sensor) vs. normal expiry / transient.
-        XCTAssertTrue(try status(errorWord: "0300").isTerminalFailure)
-        XCTAssertTrue(try status(errorWord: "0600").isTerminalFailure)
-        XCTAssertTrue(try status(errorWord: "0800").isTerminalFailure)
-        XCTAssertFalse(try status(errorWord: "0000").isTerminalFailure)
-        XCTAssertFalse(try status(errorWord: "0500").isTerminalFailure)
-        XCTAssertFalse(try status(errorWord: "0700").isTerminalFailure)
-        XCTAssertFalse(try status(errorWord: "0900").isTerminalFailure)
+        // Expiry remains BLE-visible until shutdown; terminated is the
+        // post-shutdown/no-advertising state. Insertion failure is separate.
+        XCTAssertTrue(try status(errorWord: "0300").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0000").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0500").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0600").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0700").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0800").isInsertionFailure)
+        XCTAssertFalse(try status(errorWord: "0900").isInsertionFailure)
+
+        XCTAssertTrue(try status(errorWord: "0600").isShutdownTerminated)
+        XCTAssertTrue(try status(errorWord: "0800").isShutdownTerminated)
+        XCTAssertFalse(try status(errorWord: "0000").isShutdownTerminated)
+        XCTAssertFalse(try status(errorWord: "0300").isShutdownTerminated)
+        XCTAssertFalse(try status(errorWord: "0500").isShutdownTerminated)
+        XCTAssertFalse(try status(errorWord: "0700").isShutdownTerminated)
+        XCTAssertFalse(try status(errorWord: "0900").isShutdownTerminated)
     }
 
     func testLifecycleTakesWarmupAndWearFromPatchInfo() throws {

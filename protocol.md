@@ -354,21 +354,24 @@ sensor's event-log record, and `errorData` is the error field of that record.
 The numeric meaning is **inferred** from Abbott's app
 (`SensorState.Companion.from`), which maps an error code to a `SensorError`:
 
-| `errorData` | Meaning | Terminal? |
+| `errorData` | Meaning | BLE advertising / session note |
 | --- | --- | --- |
-| `0` | No error | No |
-| `3` | Insertion failure (sensor failed to start) | Yes |
-| `5` | Expired (normal end-of-wear) | No |
-| `6` | Terminated (unrecoverable failure) | Yes |
-| `7` | Transmission error | No |
-| `8` | Terminated (unrecoverable failure) | Yes |
+| `0` | No error | Active/normal |
+| `3` | Insertion failure (sensor failed to start) | Replacement condition |
+| `5` | Expired (normal end-of-wear) | Can still advertise over BLE after wear duration |
+| `6` | Terminated / shut down | Stops advertising after shutdown |
+| `7` | Transmission error | Not an end state |
+| `8` | Terminated / shut down | Stops advertising after shutdown |
 
-This is a terminal *failure* state — the sensor has decided its quality is
-unrecoverably impaired — distinct from normal `5`/end-of-wear expiry and from
-the per-reading sensor-condition bits in the realtime glucose word. The mapping
-has not yet been confirmed against a captured terminal-failure frame; healthy
-captures consistently show `errorData == 0`. LibreCRKit exposes the decode as
-`PatchStatus.sensorError` (`Libre3SensorError`) and `PatchStatus.isTerminalFailure`.
+`5` and `6` are distinct states. State `5` is the normal end-of-wear condition
+at the end of `wearDuration`; Libre 3 sensors can still advertise over BLE after
+that transition. State `6` is the terminated/shutdown condition observed after
+the app sends the shutdown patch command (`05 00 00 00 00 00 00`) or after the
+sensor shuts itself down. The mapping has not yet been confirmed against our own
+captured expired/terminated frames; healthy captures consistently show
+`errorData == 0`. LibreCRKit exposes the decode as `PatchStatus.sensorError`
+(`Libre3SensorError`) plus `PatchStatus.isShutdownTerminated` and
+`PatchStatus.isInsertionFailure` convenience flags.
 
 Lifecycle helpers currently model a 60-minute warmup and optional total wear
 duration supplied by the app.
