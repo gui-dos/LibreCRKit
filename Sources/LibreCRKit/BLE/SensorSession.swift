@@ -117,6 +117,10 @@ public final class SensorSession: NSObject, @unchecked Sendable {
     private var notifyContinuations: [AsyncStream<NotifyEvent>.Continuation] = []
     private var servicesPendingChars: Int = 0
     private var notifyPending: Set<CBUUID> = []
+    /// Which discovered characteristics to enable notifications on during
+    /// `discoverAndSubscribe`. Defaults to the handshake set; data-plane
+    /// characteristics are subscribed later by `refreshDataPlaneNotifications`.
+    private var subscribeUUIDs: Set<CBUUID> = Set(LibreSensorGATT.Char.handshakeNotifying)
     private var discoveryStartedAt: Date?
     private var serviceDiscoveredAt: Date?
     private var charsDiscoveredAt: Date?
@@ -135,15 +139,20 @@ public final class SensorSession: NSObject, @unchecked Sendable {
         peripheral.delegate = self
     }
 
-    /// Discovers the Libre 3 services + characteristics and subscribes to all
-    /// notify-capable characteristics. Resolves once discovery is complete.
+    /// Discovers the Libre 3 services + characteristics and subscribes to the
+    /// requested notify-capable characteristics. Resolves once discovery is
+    /// complete.
     /// Requests BOTH the data service (glucose/log channels) AND the security
     /// service (cert exchange + challenge channels) — Phase 1–6 needs both.
-    public func discoverAndSubscribe(timeout: TimeInterval = 10) async throws {
+    public func discoverAndSubscribe(
+        subscribe: [CBUUID] = LibreSensorGATT.Char.handshakeNotifying,
+        timeout: TimeInterval = 10
+    ) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.async {
                 self.discoveryContinuation = cont
                 self.discoveryStartedAt = Date()
+                self.subscribeUUIDs = Set(subscribe)
                 // A silently-dead link leaves the GATT discovery delegate
                 // callbacks pending forever. Without this bound the reconnect
                 // Task that awaits discoverAndSubscribe never returns, which
@@ -254,19 +263,31 @@ public final class SensorSession: NSObject, @unchecked Sendable {
     ///   - characteristics: UUIDs to refresh. Defaults to
     ///     `LibreSensorGATT.Char.dataPlaneNotifying`.
     ///   - perCharacteristicTimeout: Per-`setNotify` timeout.
-    ///   - settleDelay: Sleep between toggles. Empirically a brief settle
-    ///     (≈90ms) avoids the sensor missing the off→on transition.
+    ///   - settleDelay: Retained for source compatibility. Data-plane
+    ///     notifications are now first-time enables, so no settle delay is used.
     public func refreshDataPlaneNotifications(
         characteristics: [CBUUID] = LibreSensorGATT.Char.dataPlaneNotifying,
         perCharacteristicTimeout: TimeInterval = 8,
         settleDelay: TimeInterval = 0.09
     ) async throws {
-        for uuid in characteristics {
-            try await setNotify(false, for: uuid, timeout: perCharacteristicTimeout)
-            try? await Task.sleep(nanoseconds: UInt64(settleDelay * 1_000_000_000))
-            try await setNotify(true, for: uuid, timeout: perCharacteristicTimeout)
-            try? await Task.sleep(nanoseconds: UInt64(settleDelay * 1_000_000_000))
+        // Data-plane characteristics are deliberately NOT subscribed at connect
+        // (discoverAndSubscribe only enables the handshake set), so enabling them
+        // here is a first-time CCCD write — a single enable is what kicks the
+        // sensor into streaming, with no off→on toggle. Run them concurrently so
+        // the acks overlap instead of summing.
+        _ = settleDelay
+        let start = DispatchTime.now()
+        BLETiming.log("refreshDataPlaneNotifications: \(characteristics.count) char(s), first-time enable")
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for uuid in characteristics {
+                group.addTask {
+                    try await self.setNotify(true, for: uuid, timeout: perCharacteristicTimeout)
+                }
+            }
+            try await group.waitForAll()
         }
+        let ms = Int(Double(DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
+        BLETiming.log("refreshDataPlaneNotifications: complete in \(ms)ms (first-time enable)")
     }
 
     /// Fragments `payload` per BleFraming and writes each fragment with response.
@@ -477,7 +498,11 @@ extension SensorSession: CBPeripheralDelegate {
         var notifyRequested = 0
         for chr in service.characteristics ?? [] {
             characteristics[chr.uuid] = chr
-            if chr.properties.contains(.notify) {
+            // Only subscribe the requested set at connect (the handshake
+            // characteristics). Data-plane characteristics are left unsubscribed
+            // and enabled once, post-handshake, so their CCCD enable is a fresh
+            // write that kicks streaming — no off→on toggle.
+            if chr.properties.contains(.notify), subscribeUUIDs.contains(chr.uuid) {
                 if chr.isNotifying {
                     BLETiming.log("setNotifyValue: skipping \(chr.uuid.uuidString) — already notifying")
                 } else {

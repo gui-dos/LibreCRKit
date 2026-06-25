@@ -54,14 +54,25 @@ public enum LibreSensorGATT {
             secCertData, secChallengeData, secCommandResponse,
         ]
 
-        /// Data-plane notify characteristics that need a CCCD off→on cycle
-        /// after Phase 6 (or any subsequent re-handshake) before the sensor
-        /// starts broadcasting glucose/status. Without this kick the BLE
-        /// session stays open but the sensor is silent.
+        /// Data-plane notify characteristics enabled after Phase 6 (or any
+        /// subsequent re-handshake) before the sensor starts broadcasting
+        /// glucose/status. Without this kick the BLE session stays open but
+        /// the sensor is silent.
         ///
         /// Used by `SensorSession.refreshDataPlaneNotifications()`.
         public static let dataPlaneNotifying: [CBUUID] = [
             patchControl, eventLog, factoryData, glucoseData, patchStatus,
+        ]
+
+        /// Characteristics the security handshake reads its responses on — the
+        /// only ones that must be notifying *before* the handshake runs. The
+        /// data-plane characteristics are deliberately left unsubscribed at
+        /// connect and enabled once afterwards (see
+        /// `SensorSession.refreshDataPlaneNotifications`), so their post-handshake
+        /// CCCD enable is a fresh first-time write that kicks streaming — no
+        /// off→on toggle needed.
+        public static let handshakeNotifying: [CBUUID] = [
+            secCertData, secChallengeData, secCommandResponse,
         ]
 
         // ── PairingFlow alias mapping (now grounded in MSLibre3Constants) ──
