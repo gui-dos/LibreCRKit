@@ -16,9 +16,16 @@ import Foundation
 // The package-bundled `phone_cert_firstpair.bin` (`03 00...`) is rejected by
 // live fresh sensors and is kept only as a default for tests and controlled
 // experiments. Working first-pair uses the `03 03` family cert
-// (`phone_cert_162b.bin`, vendored by the app/plugin bundles, not this
-// package). The `03 03` prefix selects the native index-1 static scalar
-// window below via `phase5StaticScalarWindowOverride`.
+// (`phone_cert_162b.bin`), now also bundled by this package and loadable via
+// `bundled162b()`. The `03 03` prefix selects the native index-1 static
+// scalar window below via `phase5StaticScalarWindowOverride`.
+//
+// Provenance of the `03 03` cert: `phone_cert_162b.bin` is byte-exact
+// Juggluco's `LIBRE3_APP_CERTIFICATES_B[1]` (open-source app, repo
+// `github.com/j-kaltes/Juggluco`, `ECDHCrypto.java`). It is a static, public
+// artifact shipped identically to every Juggluco install — a universal cert,
+// not per-user/per-device material — which is why it pairs fresh sensors
+// generally and is safe to vendor here.
 //
 // 2026-06-25 update — supersedes the earlier "still failed before Phase 6"
 // note: fresh-pair now completes through Phase 6 on live sensors and has in
@@ -58,10 +65,18 @@ public struct PhoneCert: Equatable, Sendable {
 
     /// Loads the package-bundled `phone_cert_firstpair.bin` (`03 00`). This is
     /// the default resource for tests and controlled experiments only — live
-    /// fresh sensors reject it. For live first-pair, supply the `03 03`
-    /// `phone_cert_162b.bin` (vendored by the app/plugin) instead.
+    /// fresh sensors reject it. For live first-pair use ``bundled162b()``.
     public static func bundledFirstPair() throws -> PhoneCert {
         try bundled(named: "phone_cert_firstpair")
+    }
+
+    /// Loads the package-bundled `phone_cert_162b.bin` (`03 03`), the cert
+    /// family that pairs live fresh sensors when combined with the
+    /// native-ephemeral Phase 5 derivation (see the cert-family note above).
+    /// This is Juggluco's universal `LIBRE3_APP_CERTIFICATES_B[1]`; clients no
+    /// longer need to vendor their own copy.
+    public static func bundled162b() throws -> PhoneCert {
+        try bundled(named: "phone_cert_162b")
     }
 
     static func bundled(named resource: String) throws -> PhoneCert {

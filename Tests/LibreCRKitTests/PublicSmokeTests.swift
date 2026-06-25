@@ -126,6 +126,22 @@ final class PublicSmokeTests: XCTestCase {
         XCTAssertEqual(try cert.verifiedSigningKeyIndex(), 1)
     }
 
+    func testBundled162bCertIsLiveFirstPairFamilyAndEngagesPhase5Override() throws {
+        let cert = try PhoneCert.bundled162b()
+
+        XCTAssertEqual(cert.raw.count, PhoneCert.totalSize)
+        XCTAssertTrue(cert.raw.prefix(2).elementsEqual([0x03, 0x03]))
+        XCTAssertEqual(cert.staticPub.first, 0x04)
+        XCTAssertEqual(
+            cert.phase5StaticScalarWindowOverride,
+            FirstPairStaticScalarWindow.firstPairIndex1
+        )
+
+        let firstPair = try PhoneCert.bundledFirstPair()
+        XCTAssertTrue(firstPair.raw.prefix(2).elementsEqual([0x03, 0x00]))
+        XCTAssertNil(firstPair.phase5StaticScalarWindowOverride)
+    }
+
     func testRealtimeQualityFieldsGateUsability() throws {
         let reading = try RealtimeGlucoseReading(plaintext: usableRealtimePlaintext)
 

@@ -215,10 +215,13 @@ Initial (fresh) pairing has two extra constraints beyond the command sequence
 above, both confirmed against live sensors:
 
 - **Certificate family.** The phone certificate must be the `03 03` family
-  (`phone_cert_162b.bin`). The `03 00` candidate (`phone_cert_firstpair.bin`,
-  the LibreCRKit-bundled default) is rejected by live fresh sensors and is kept
-  only for tests. The `03 03` prefix selects the index-1 native static-scalar
-  window for Phase 5.
+  (`phone_cert_162b.bin`), loadable via `PhoneCert.bundled162b()`. The `03 00`
+  candidate (`phone_cert_firstpair.bin`, `PhoneCert.bundledFirstPair()`) is
+  rejected by live fresh sensors and is kept only for tests. The `03 03` prefix
+  selects the index-1 native static-scalar window for Phase 5. The `03 03` cert
+  is byte-exact Juggluco's public `LIBRE3_APP_CERTIFICATES_B[1]` — a universal
+  static artifact, not per-user material — so the package bundles it directly
+  and integrations no longer need to vendor their own copy.
 - **Native-ephemeral coupling.** The phone ephemeral public key and the Phase 5
   key source must derive from the same native entropy. Generate them together
   with `SessionKey.makeFirstPairNativeEphemeral(entropySource:)`, pass the
