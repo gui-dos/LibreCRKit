@@ -1,8 +1,7 @@
 import Foundation
 
-// Plaintext builders for PatchDataControl writes.
+// Plaintext builders for patchControl writes.
 //
-// Ground truth: iOS Libre3.app helper stubs at 0x10000c004..0x10000c0a4.
 // Each command is exactly 7 bytes before the post-auth AES-CCM data-plane
 // wrapper turns it into an 11-byte encrypted body plus a 2-byte sequence.
 
@@ -63,6 +62,10 @@ public struct PatchControlCommand: Equatable, Sendable {
         )
     }
 
+    /// Request sensor shutdown/end-session.
+    ///
+    /// This is a terminal patch-control command. It is not needed for routine
+    /// disconnect, reconnect, or backfill workflows.
     public static func shutdownPatch() -> PatchControlCommand {
         PatchControlCommand(
             label: "shutdown patch",

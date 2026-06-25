@@ -109,6 +109,18 @@ public struct Libre3DataPlaneState: Equatable, Sendable {
         latestLifecycle?.isWarmingUp ?? false
     }
 
+    public var latestSensorAttention: Libre3SensorAttention {
+        latestPatchStatus?.sensorAttention ?? .none
+    }
+
+    public var shouldNotifyUser: Bool {
+        latestSensorAttention.shouldNotifyUser
+    }
+
+    public var shouldNotifyReplaceSensor: Bool {
+        latestSensorAttention.isReplaceSensor
+    }
+
     public mutating func record(_ packet: DataPlaneDecodedPacket) -> Libre3DataPlaneStateUpdate {
         switch packet.payload {
         case .patchStatus(let status):

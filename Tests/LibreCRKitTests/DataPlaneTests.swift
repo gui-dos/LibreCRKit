@@ -280,7 +280,7 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertEqual(notActionable.actionableStatus, 0)
         XCTAssertEqual(notActionable.actionability, .notActionable)
         // Actionability is advisory: an otherwise-clean non-actionable reading
-        // stays usable (Abbott's app still displays the value).
+        // stays usable.
         XCTAssertTrue(notActionable.isCurrentGlucoseUsable)
 
         let temperatureStatus = try RealtimeGlucoseReading(plaintext: settingU16(base, offset: 6, to: 0x0201))
@@ -316,7 +316,7 @@ final class DataPlaneTests: XCTestCase {
 
     func testPatchStatusDecodesSensorErrorCodes() throws {
         // Synthetic frames: the healthy live frame with only the errorData
-        // word (offset 2-3, LE) swapped. Codes per Abbott SensorState.from.
+        // word (offset 2-3, LE) swapped.
         func status(errorWord hex: String) throws -> PatchStatus {
             try PatchStatus(plaintext: raw("9d28" + hex + "e0000704e4381300"))
         }
@@ -328,6 +328,19 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertEqual(try status(errorWord: "0700").sensorError, .transmissionError)
         XCTAssertEqual(try status(errorWord: "0800").sensorError, .terminated)
         XCTAssertEqual(try status(errorWord: "0900").sensorError, .unknown(9))
+
+        XCTAssertEqual(try status(errorWord: "0000").sensorAttention, .none)
+        XCTAssertEqual(try status(errorWord: "0300").sensorAttention, .checkSensor)
+        XCTAssertEqual(try status(errorWord: "0500").sensorAttention, .sensorEnded)
+        XCTAssertEqual(try status(errorWord: "0600").sensorAttention, .sensorEnded)
+        XCTAssertEqual(try status(errorWord: "0700").sensorAttention, .replaceSensor)
+        XCTAssertEqual(try status(errorWord: "0800").sensorAttention, .replaceSensor)
+        XCTAssertEqual(try status(errorWord: "0900").sensorAttention, .unknown(9))
+        XCTAssertTrue(try status(errorWord: "0700").shouldNotifyReplaceSensor)
+        XCTAssertTrue(try status(errorWord: "0800").shouldNotifyReplaceSensor)
+        XCTAssertFalse(try status(errorWord: "0500").shouldNotifyReplaceSensor)
+        XCTAssertTrue(try status(errorWord: "0300").shouldNotifyUser)
+        XCTAssertFalse(try status(errorWord: "0000").shouldNotifyUser)
 
         // Expiry remains BLE-visible until shutdown; terminated is the
         // post-shutdown/no-advertising state. Insertion failure is separate.
@@ -346,6 +359,50 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertFalse(try status(errorWord: "0500").isShutdownTerminated)
         XCTAssertFalse(try status(errorWord: "0700").isShutdownTerminated)
         XCTAssertFalse(try status(errorWord: "0900").isShutdownTerminated)
+    }
+
+    func testPatchStatusExposesPatchStateGroups() throws {
+        func status(patchState: UInt8) throws -> PatchStatus {
+            var bytes = raw("9d280000e0000704e4381300")
+            bytes[bytes.startIndex + 7] = patchState
+            return try PatchStatus(plaintext: bytes)
+        }
+
+        let active = try status(patchState: 4)
+        XCTAssertEqual(active.patchStateKind, .active)
+        XCTAssertEqual(active.patchStateKind.rawValue, 4)
+        XCTAssertTrue(active.isPatchStateActive)
+        XCTAssertFalse(active.isPatchStateExpiredOrError)
+        XCTAssertFalse(active.isPatchStateTerminated)
+
+        for state in [UInt8(3), 5, 7] {
+            let value = try status(patchState: state)
+            XCTAssertEqual(value.patchStateKind, .raw(Int8(bitPattern: state)))
+            XCTAssertFalse(value.isPatchStateActive)
+            XCTAssertTrue(value.isPatchStateExpiredOrError)
+            XCTAssertFalse(value.isPatchStateTerminated)
+        }
+
+        XCTAssertEqual(try status(patchState: 3).sensorAttention, .checkSensor)
+        XCTAssertEqual(try status(patchState: 5).sensorAttention, .sensorEnded)
+        XCTAssertEqual(try status(patchState: 6).sensorAttention, .sensorEnded)
+        XCTAssertEqual(try status(patchState: 7).sensorAttention, .replaceSensor)
+        XCTAssertEqual(try status(patchState: 8).sensorAttention, .replaceSensor)
+        XCTAssertTrue(try status(patchState: 7).shouldNotifyReplaceSensor)
+
+        for state in [UInt8(6), 8] {
+            let value = try status(patchState: state)
+            XCTAssertEqual(value.patchStateKind, .raw(Int8(bitPattern: state)))
+            XCTAssertFalse(value.isPatchStateActive)
+            XCTAssertFalse(value.isPatchStateExpiredOrError)
+            XCTAssertTrue(value.isPatchStateTerminated)
+        }
+
+        let unknown = try status(patchState: 9)
+        XCTAssertEqual(unknown.patchStateKind, .raw(9))
+        XCTAssertFalse(unknown.isPatchStateActive)
+        XCTAssertFalse(unknown.isPatchStateExpiredOrError)
+        XCTAssertFalse(unknown.isPatchStateTerminated)
     }
 
     func testLifecycleTakesWarmupAndWearFromPatchInfo() throws {
@@ -374,6 +431,15 @@ final class DataPlaneTests: XCTestCase {
         XCTAssertEqual(state.lifecyclePhase, .warmup)
         XCTAssertTrue(state.isInWarmup)
         XCTAssertEqual(state.latestLifecycle?.remainingWarmupMinutes, 48)
+        XCTAssertEqual(state.latestSensorAttention, .none)
+        XCTAssertFalse(state.shouldNotifyUser)
+        XCTAssertFalse(state.shouldNotifyReplaceSensor)
+
+        let replaceStatus = try PatchStatus(plaintext: raw("0c000700000000040c000000"))
+        let replaceState = Libre3DataPlaneState(patchInfo: patchInfo, latestPatchStatus: replaceStatus)
+        XCTAssertEqual(replaceState.latestSensorAttention, .replaceSensor)
+        XCTAssertTrue(replaceState.shouldNotifyUser)
+        XCTAssertTrue(replaceState.shouldNotifyReplaceSensor)
     }
 
     func testSessionControlFrames() throws {

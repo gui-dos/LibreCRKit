@@ -20,9 +20,7 @@ public enum DataPlanePacketKind: UInt8, CaseIterable, Sendable {
     case kind6 = 6
     case patchData = 7
 
-    /// Outbound PatchDataControl command writes. Grounded in iOS
-    /// `sendPatchControlCommand`, which passes packet-descriptor index 0 to
-    /// its CCM wrapper before writing the encrypted command to patchControl.
+    /// Outbound patchControl command writes.
     public static let patchControlWrite: DataPlanePacketKind = .kind0
 
     public var descriptor: Data {

@@ -5,14 +5,10 @@ import Foundation
 /// 5-minute stride — each page is a single time-point record with seven
 /// 16-bit fields, emitted once per minute while the sensor is connected.
 ///
-/// Field semantics were pinned against ground truth: at a known
-/// `lifeCount` the realtime stream forwards both a current value and an
-/// embedded historical value, and the clinical record emitted at the
-/// same `lifeCount` reproduces both. At lifeCount 1578 the realtime
-/// frame reported current = 160 mg/dL and embedded historical = 136
-/// mg/dL (at the last 5-minute boundary, lifeCount 1560); the clinical
-/// record at lifeCount 1578 carried word[5] = 160 and word[6] = 136.
-/// That cross-check fixes the mapping:
+/// The clinical stream mirrors two values from the realtime stream at the
+/// same sensor life count: word[5] is the current-minute glucose, and word[6]
+/// is the most recent 5-minute committed historical glucose. That fixes the
+/// currently modeled field mapping:
 ///
 /// | word | bytes | meaning                                              |
 /// | ---- | ----- | ---------------------------------------------------- |
@@ -34,31 +30,22 @@ import Foundation
 ///
 /// **5-min-boundary finalization for word[6]:** the historic value steps
 /// forward at `lifeCount ≡ 2 (mod 5)` and lands on the boundary
-/// `lifeCount − 17` (snapped down to a multiple of 5). Empirically
-/// confirmed across multiple captures; e.g. `lifeCount 2017` finalized
-/// the boundary at 2000, `2022` at 2005, `2027` at 2010, etc. The 17
-/// minute lag is the firmware's historic-finalization latency and is a
-/// named constant in Abbott's app —
-/// `MSLibre3Constants.HISTORIC_POINT_LATENCY = 17` (paired with
-/// `LIBRE3_HISTORIC_LIFECOUNT_INTERVAL = 5`) — so it is a fixed protocol
-/// parameter, not just a capture-fit. Even so, authoritative pairing of
-/// `historicGlucoseRaw` to a lifeCount should prefer the realtime frame's
-/// own `historicalLifeCount` field when available; the helper below is
-/// provided for cases where only the clinical record is in hand.
+/// `lifeCount - 17` (snapped down to a multiple of 5). The 17-minute lag is
+/// modeled as a protocol parameter paired with the 5-minute historical
+/// interval. Even so, authoritative pairing of `historicGlucoseRaw` to a
+/// lifeCount should prefer the realtime frame's own `historicalLifeCount`
+/// field when available; the helper below is provided for cases where only
+/// the clinical record is in hand.
 ///
-/// **Gap-fill behavior — the headline practical use:** the clinical
+/// **Gap-fill behavior:** the clinical
 /// CCCD buffers records sensor-side while the host is disconnected and
-/// replays the full buffered window in a burst on resubscribe. Field
-/// testing has observed bursts of 38+ contiguous per-minute records
-/// arriving within a few seconds of reconnect after a multi-tens-of-
-/// minutes outage. This makes the clinical stream the only published
-/// way to recover *minute-resolution* glucose for the outage window —
-/// historical paged backfill only commits at 5-min boundaries and lags
-/// current by ~17 minutes, leaving a window the realtime frame's
-/// embedded historical can only refill over the ~17 minutes following
-/// reconnect. Apps that care about gap-fill should subscribe to the
-/// clinical CCCD and forward `currentGlucose` keyed at `lifeCount`,
-/// deduping against samples already received via the realtime stream.
+/// replays the buffered window in a burst on resubscribe. This makes the
+/// clinical stream the currently modeled way to recover minute-resolution
+/// glucose for a disconnect window. Historical paged backfill commits only at
+/// 5-minute boundaries and lags current by about 17 minutes. Apps that care
+/// about gap-fill should subscribe to the clinical CCCD and forward
+/// `currentGlucose` keyed at `lifeCount`, deduping against samples already
+/// received via the realtime stream.
 ///
 /// Apps integrating this should consume `currentGlucose` keyed by
 /// `lifeCount` (offset 0). `historicGlucoseRaw` is redundant with the

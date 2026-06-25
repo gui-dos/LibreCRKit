@@ -105,11 +105,34 @@ Issues are split into two classes:
   Currently the only advisory is `notActionable`, exposed via `advisories`.
 
 Actionability (bit 3 of the realtime status byte) is intentionally advisory.
-Abbott's own app still displays the glucose value for a non-actionable reading;
-the bit only optionally drives a "non-actionable" overlay icon. A reading whose
-other quality channels are clean therefore stays usable even when the sensor
-reports it as non-actionable. Integrating apps that want stricter behavior can
-inspect `reading.actionability` or the `advisories` list directly.
+A non-actionable reading can still carry a displayable glucose value. A reading
+whose other quality channels are clean therefore stays usable even when the
+sensor reports it as non-actionable. Integrating apps that want stricter
+behavior can inspect `reading.actionability` or the `advisories` list directly.
+
+## Sensor End States
+
+`PatchStatus.sensorError` separates normal end-of-wear from shutdown:
+`errorData == 5` is `.expired`, while `6` and `8` are `.terminated`.
+Expired sensors may still advertise over BLE; terminated is the
+shutdown/end-session state. `PatchStatus` also exposes patch-state helpers for
+known state groups: active (`4`), expired/error handling (`3`, `5`, `7`), and
+already terminated (`6`, `8`).
+
+Apps that need to notify users quickly should use
+`PatchStatus.sensorAttention` or `Libre3DataPlaneState.latestSensorAttention`
+instead of reimplementing Abbott's UI mapping. Current compatibility evidence
+maps `errorData == 3` to `.checkSensor`, `5`/`6` to `.sensorEnded`, and
+`7`/`8` to `.replaceSensor`; `shouldNotifyReplaceSensor` is true for the
+replace-sensor cases. Code 7 is named `.transmissionError` at the raw
+sensor-error layer, but Abbott's Android app sets its replace-sensor UI flag
+for that code. The recovered Android alarm alert payload does not expose that
+flag directly, so clients should treat `sensorAttention` as LibreCRKit's stable
+notification-routing surface and keep the raw fields for logging.
+
+`PatchControlCommand.shutdownPatch()` builds the terminal shutdown command
+`05 00 00 00 00 00 00`. It is not needed for routine disconnect, reconnect, or
+bounded backfill.
 
 ## Standalone POC Exercise App
 

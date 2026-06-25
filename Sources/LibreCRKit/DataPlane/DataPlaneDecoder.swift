@@ -123,7 +123,6 @@ public struct DataPlaneDecoder: Sendable {
 
 /// Reassembles post-auth notification bodies before `DataFrame.parse`.
 ///
-/// Ground truth from live iPhone takeover captures:
 /// `glucoseData` readings arrive as a 15-byte prefix followed by a 20-byte
 /// suffix. The suffix contains the normal data-plane 2-byte sequence trailer, so
 /// the two notifications must be concatenated before CCM tag verification.

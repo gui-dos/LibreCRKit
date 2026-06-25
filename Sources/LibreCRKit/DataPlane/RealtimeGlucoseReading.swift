@@ -619,11 +619,9 @@ public enum Libre3GlucoseQualityIssue: Equatable, Sendable, CustomStringConverti
 
     /// Whether this issue makes the reading unusable for dosing/display.
     ///
-    /// `.notActionable` is advisory only: Abbott's own app still displays the
-    /// glucose number for a non-actionable reading (the bit only optionally
-    /// drives the `nonactionable_icon` overlay, gated by `EnableNonActionableIcon`).
-    /// It is surfaced as a quality issue so callers can see it, but it does not
-    /// suppress the reading.
+    /// `.notActionable` is advisory only: a non-actionable frame can still carry
+    /// a displayable glucose number. It is surfaced as a quality issue so
+    /// callers can see it, but it does not suppress the reading.
     public var isAdvisory: Bool {
         switch self {
         case .notActionable:
